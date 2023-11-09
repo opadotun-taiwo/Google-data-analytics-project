@@ -1,0 +1,308 @@
+---
+title: "Bellabeat_Casestudy"
+author: "Opadotun taiwo"
+date: "2023-05-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Process
+## Loading Packages
+```{r}
+library(tidyverse)
+library(lubridate) 
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(janitor)
+library(skimr)
+library(plotly)
+```
+
+## Load Dataset
+```{r}
+daily_activity <- read.csv("Capstone Project/Fitabase Data 4.12.16-5.12.16/dailyActivity_merged.csv")
+sleep_day <- read.csv("Capstone Project/Fitabase Data 4.12.16-5.12.16/sleepDay_merged.csv")
+hourly_steps <- read.csv("Capstone Project/Fitabase Data 4.12.16-5.12.16/hourlySteps_merged.csv")
+```
+
+## Preview Loaded Dataset
+```{r}
+head(daily_activity)
+colnames(daily_activity)
+str(daily_activity)
+
+head(sleep_day)
+colnames(sleep_day)
+str(sleep_day)
+
+head(hourly_steps)
+colnames(hourly_steps)
+str(hourly_steps)
+```
+
+
+## Data Cleaning
+```{r}
+## Understanding Summary Statistics
+# How many unique participants are there in each data set
+n_distinct(daily_activity$Id)
+n_distinct(sleep_day$Id)
+n_distinct(hourly_steps$Id)
+
+# Checking for duplicates
+sum(duplicated(daily_activity))
+sum(duplicated(sleep_day))
+sum(duplicated(hourly_steps))
+
+# Removing Duplicates
+daily_activity <- daily_activity %>%
+  distinct() %>%
+  drop_na()
+
+sleep_day <- sleep_day %>%
+  distinct() %>%
+  drop_na()
+
+hourly_steps <- hourly_steps %>%
+  distinct() %>%
+  drop_na()
+
+# Verifying remove duplicates
+sum(duplicated(sleep_day))
+
+daily_activity <- daily_activity %>%
+  rename(date = ActivityDate) %>% 
+  mutate(date = as.Date(date, format = "%m/%d/%Y"))
+
+sleep_day <- sleep_day %>% 
+  rename(date = SleepDay) %>% 
+  mutate(date=as.Date(date, format = "%m/%d/%Y %I:%M:%S %p" , tz = Sys.timezone()))
+
+
+str(daily_activity)
+str(sleep_day)
+
+# convert date string to date-time in the hourly_steps.
+hourly_steps<- hourly_steps %>%
+  rename(date_time = ActivityHour) %>% 
+  mutate(date_time = as.POSIXct(date_time,format ="%m/%d/%Y %I:%M:%S %p" , tz=Sys.timezone()))
+
+head(hourly_steps)
+```
+
+# Analyse Phase
+## Goal: To analyze FitBit User Trends and determine if it can help create a marketing strategy for BellaBeat
+## Perform Calcualtion
+pulling statistics for analysis
+
+count — no. of rows
+mean (average)
+std (standard deviation)
+min and max
+percentiles 25%, 50%, 75%
+
+# daily_activity
+```{r}
+daily_activity %>%
+  select(TotalSteps,
+          TotalDistance,
+          SedentaryMinutes,
+          Calories) %>%
+  summary()
+
+#number of active minutes per category
+daily_activity %>% 
+  select(VeryActiveMinutes,
+         FairlyActiveMinutes,
+         LightlyActiveMinutes,
+         SedentaryMinutes) %>% 
+  summary()
+
+# sleep
+sleep_day %>% 
+  select(TotalSleepRecords,
+         TotalMinutesAsleep,
+         TotalTimeInBed) %>%
+  summary()
+
+# hourly
+hourly_steps %>% 
+  select(StepTotal) %>% 
+  summary()
+```
+
+## Data Merging
+```{r}
+combined_data <- merge(daily_activity, sleep_day, by=c ("Id", "date")) %>% 
+  mutate(weekday = weekdays(as.Date(date,"m/%d/%Y")))
+
+n_distinct(combined_data$Id)
+glimpse(combined_data)
+```
+
+
+# Share - Visualization
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+# How Active are the Users?
+```{r}
+#Active users
+active_users <- daily_activity %>%
+  filter(FairlyActiveMinutes >= 21.4 | VeryActiveMinutes>=10.7) %>% 
+  group_by(Id) %>% 
+  count(Id) 
+
+total_minutes <- sum(daily_activity$SedentaryMinutes, daily_activity$VeryActiveMinutes, daily_activity$FairlyActiveMinutes, daily_activity$LightlyActiveMinutes)
+sedentary_percentage <- sum(daily_activity$SedentaryMinutes)/total_minutes*100
+lightly_percentage <- sum(daily_activity$LightlyActiveMinutes)/total_minutes*100
+fairly_percentage <- sum(daily_activity$FairlyActiveMinutes)/total_minutes*100
+active_percentage <- sum(daily_activity$VeryActiveMinutes)/total_minutes*100
+
+#Pie charts
+percentage <- data.frame(
+  level=c("Sedentary", "Lightly Active", "Fairly Active", "Very Active"),
+  minutes=c(sedentary_percentage,lightly_percentage,fairly_percentage,active_percentage)
+)
+
+
+plot_ly(percentage, labels = ~level, values = ~minutes, type = 'pie',textposition = 'outside',textinfo = 'label+percent') %>% 
+layout(title = 'Activity Level Minutes',
+         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+         yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
+```
+
+## How Much Steps Taken Per day
+```{r}
+day_steps_sleep <- combined_data %>%
+  mutate(weekday = weekdays(date))
+
+day_steps_sleep$weekday <- ordered(day_steps_sleep$weekday, levels=c("Monday", "Tuesday", "Wednesday", "Thursday",
+"Friday", "Saturday", "Sunday"))
+
+ day_steps_sleep <- day_steps_sleep %>%
+  group_by(weekday) %>%
+  summarize (daily_steps = mean(TotalSteps), daily_sleep = mean(TotalMinutesAsleep))
+
+head(day_steps_sleep)
+
+
+ggplot(day_steps_sleep) +
+      geom_col(aes(weekday, daily_steps), fill = "#006699") +
+      geom_hline(yintercept = 7500) +
+      labs(title = "Daily steps per weekday", x= "Weekday", y = "Daily Steps") +
+      theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 1))
+```
+
+**This shows that participants are most active on Saturdays and least active on Sundays.**
+
+
+##  How much Sleep Time Per Day
+```{r}
+
+ggplot(day_steps_sleep, aes(weekday, daily_sleep)) +
+      geom_col(fill = "#85e0e0") +
+      geom_hline(yintercept = 480) +
+      labs(title = "Minutes asleep per weekday", x= "Weekday", y = "Sleep") +
+      theme(axis.text.x = element_text(angle = 45,vjust = 0.5, hjust = 1))
+```
+
+**People Sleep more on Wednesdays and Sundays than any other days of the week. However this disparity is not that much**
+
+## Tracker Usage across the week
+```{r}
+
+ ggplot(data = combined_data, aes(x=weekday)) +
+  geom_bar(fill="green") +
+  labs(title = "Tracker usage across the week", x="Weekday")
+```
+
+**More tracking is done on Thursdays, Tuesdays and Wednesdays.**
+
+```{r}
+ggplot(data=combined_data, aes(x=weekday, y=LoggedActivitiesDistance)) +
+  geom_bar(stat="identity", fill="green")+
+  labs(title="Logged Activity Distance by Day", y="Logged Activity Distance")
+```
+
+**There are many blanks in the data and no records were available for Saturday and Sunday. The highest days of logged distance was on Monday.**
+
+## Hourly Steps throughout the day
+```{r}
+hourly_steps <- hourly_steps %>% 
+  separate(date_time, into = c ("date", "time"), sep= " ") %>%
+  mutate(date_time = ymd(date))
+
+head(hourly_steps)
+
+hourly_steps %>%
+  group_by(time) %>%
+  summarize(average_steps = mean(StepTotal)) %>%
+  ggplot() +
+  geom_col(mapping = aes(x=time, y = average_steps, fill = average_steps)) + 
+  labs(title = "Hourly steps throughout the day", x="", y="") + 
+  scale_fill_gradient(low = "green", high = "red")+
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+**1. The Hourly step distribution shows that people are most active between 5pm and 10pm, this could be due to walking after work hours.**
+
+**2. They are also highly active from 12pm to 2pm and this could be due to break from work.**
+
+**3. Bellabeat can create a reminder feature in their app at free times (lunch break and close of work) to remind the users to increase their movement.**
+
+# Correlation Between
+
+## Daily steps and calories
+```{r}
+ggplot(data=combined_data, aes(x=TotalSteps, y=Calories)) + 
+  geom_jitter() + geom_point() + 
+  geom_smooth(color = "red") +
+  labs(title = "Total Daily steps vs Calories", x = "Daily steps", y= "Calories")
+```
+
+**This shows that there is a positive correlation between Total Steps and Calories. The more steps taken, the more calories burnt.**
+
+## Daily steps and daily sleep#
+```{r}
+ggplot(data=combined_data, aes(x=TotalSteps, y=TotalMinutesAsleep)) + 
+  geom_jitter() + geom_point() + 
+  geom_smooth(color = "red") + 
+  labs(title = "Daily steps vs Minutes Asleep", x = "Daily steps", y= "Minutes Asleep")
+```
+
+**There is no correlation between daily activity level based on steps and the amount of minutes users sleep a day.**
+
+## Sleep Time Vs Sendentary Time
+```{r}
+ggplot(data=combined_data, aes(x=TotalMinutesAsleep, y=SedentaryMinutes)) + 
+  geom_jitter() + geom_point(color='darkblue') + 
+  geom_smooth(color = "red") + 
+  labs(title = "Sleep Time vs Sedentary Minutes" )
+```
+
+ **1. There is a negative correlation between sedentary minutes and sleep time.**
+ 
+ **2. To increase the correlation, the Bellabeat app could recommend to its users to reduce sedentary time so that they can sleep better**
+ 
+ 
+# Conclusion
+After going through the 7 Analysis steps  and despite the limitations of the Dataset (The data is from Fitbit and not bellabeat and the sample size is small and for a limited number of time), we can recommend the following for Bellabeat marketing strategy:
+
+* More accurate data from Bellabeat users should be collected so that a more accurate analysis could be generated.
+
+* To reduce the sedentary lifestyle of 81.3% of the users, and get more of them fairly or lightly active, a notification feature at specific timing to remind users could be added to the bellabeat app.
+
+* Bellabeat can create group activities or content that encourages people to be more active on low step and high sedentary day like Sundays.
+
+* Provide app notification for users to remind them to get sufficient sleep every day and implement new sleep measurement features or products such as tracking sleep time and Rapid Eye Movement (REM) sleep.
+
+* Bellabeat can consider setting daily/weekly calorie challenges and award points to users based on the top performers. Where the points can be accumulated and redeemed as a discount for their next product purchase.
+
+* Bellabeat can suggest some ideas for low calorie breakfast, lunch, and dinner foods to help users that want to lose weight.
+
+* Bellabeat marketing team can create campaigns, educational contents, exercise suggestions and trackers on the bellabeat app and host physical fitness events and activities.
+
+* The App should have a good user experience and should be seemless to use.
